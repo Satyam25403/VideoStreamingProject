@@ -1,4 +1,4 @@
-1.- Launch a t2.micro EC2 instance (Amazon Linux or Ubuntu).
+1.Launch a t2.micro EC2 instance (Amazon Linux or Ubuntu).
 
 2.In user scripts
 set -e
@@ -14,52 +14,53 @@ mkdir -p dockerbuild && cd dockerbuild
 
 3.ssh into EC2 or ec2 instance connect
 ssh -i key.pem ubuntu@EC2_PUBLIC_IP
-cd ~/dockerbuild
 
-aws configure
+    3.a.if(user scripts failed) ex:docker etc. not available rerun the script
+        set -e
+        sudo apt update
+        sudo apt install -y unzip curl docker.io
+        sudo curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        sudo unzip awscliv2.zip
+        sudo ./aws/install
+        sudo usermod -aG docker ubuntu
+        mkdir -p /home/ubuntu/videos
+        mkdir -p dockerbuild && cd dockerbuild
 
 
-#from s3 copy imagefile to build
+4.aws configure:
+
+
+
+5.from s3 copy imagefile to build and Build the docker image
 aws s3 cp s3://storageforvideostreaming/Dockerfile .
-docker build -t videotranscoder .
+sudo docker build -t videotranscoder .
 
 
-4.downloads all the files from your S3 input folder into /home/ubuntu/videos — your host-side volume.
+7.Download all the files from your S3 input folder into your host-side volume.
 aws s3 sync s3://storageforvideostreaming/courses/ /home/ubuntu/videos
+aws s3 cp s3://storageforvideostreaming/encode_hls.sh /home/ubuntu/videos
+aws s3 cp s3://storageforvideostreaming/generate_master_playlist.sh /home/ubuntu/videos
 
-5.then make files from ec2 available to docker container run docker container with volume mounting
-docker run -it --name mycontainer -v /home/ubuntu/videos:/home/app/videos videotranscoder
+
+8.then make files from ec2 available to docker container i.e. run docker container with volume mounting
+sudo docker run -it --name mycontainer -v /home/ubuntu/videos:/home/app/videos videotranscoder
 
 
-6.transcoding command:
+9. inside the container transcode video and generate master files
 cd /home/app/videos
 mkdir -p outputs/stream_{0..5}
+chmod +x *.sh
 
-ffmpeg -i "1750315633821/DemoVideo.mp4" \
--filter_complex "\
-[0:v]split=6[v1][v2][v3][v4][v5][v6]; \
-[v1]scale=-2:144[vout1]; \
-[v2]scale=-2:240[vout2]; \
-[v3]scale=-2:360[vout3]; \
-[v4]scale=-2:480[vout4]; \
-[v5]scale=-2:720[vout5]; \
-[v6]scale=-2:1080[vout6]; \
-[0:a]asplit=6[a1][a2][a3][a4][a5][a6]" \
--map [vout1] -map [a1] -c:v:0 libx264 -b:v:0 150k -c:a:0 aac -b:a:0 64k \
--map [vout2] -map [a2] -c:v:1 libx264 -b:v:1 300k -c:a:1 aac -b:a:1 64k \
--map [vout3] -map [a3] -c:v:2 libx264 -b:v:2 600k -c:a:2 aac -b:a:2 96k \
--map [vout4] -map [a4] -c:v:3 libx264 -b:v:3 1000k -c:a:3 aac -b:a:3 96k \
--map [vout5] -map [a5] -c:v:4 libx264 -b:v:4 2000k -c:a:4 aac -b:a:4 128k \
--map [vout6] -map [a6] -c:v:5 libx264 -b:v:5 4000k -c:a:5 aac -b:a:5 128k \
--f hls -hls_time 10 -hls_playlist_type vod \
--var_stream_map "v:0,a:0 v:1,a:1 v:2,a:2 v:3,a:3 v:4,a:4 v:5,a:5" \
--hls_segment_filename "outputs/stream_%v/segment_%03d.ts" \
-outputs/stream_%v/index.m3u8
+./encode_hls.sh <lessonId>/<FileNamewithextension>  ex:1750315633821/DemoVideo.mp4
+./generate_master_playlist.sh
 
 
-7.sync outputs back to s3
+11.exit container: head to ec2 console
+exit
+
+12.sync outputs back to s3
 aws s3 sync /home/ubuntu/videos/outputs s3://storageforvideostreaming/courses/1750315633821/
 
 
-8.self terminate ec2
+13.self terminate ec2
 sudo shutdown -h now 

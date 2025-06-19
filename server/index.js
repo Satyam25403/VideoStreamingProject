@@ -1,46 +1,42 @@
 import express from "express"
 import cors from "cors"            //for cross origin requests
 import multer from "multer"     //for file uploads
-import {v4 as uuidv4} from "uuid"
 import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } from "@aws-sdk/client-sqs"
 // import { exec } from "child_process"        //not recommended to run on servers if we dont know what to do
 // import { error } from "console"
 // import { stderr, stdout } from "process"
 import dotenv from "dotenv"
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { EC2Client, RunInstancesCommand, DescribeInstancesCommand } from "@aws-sdk/client-ec2";
 
 
 
 dotenv.config()
 
-// // storage: multer middleware
-// const storage=multer.diskStorage({
-//     destination: function(req,file,callback){
-//         callback(null,"./uploads")      //first parameter for error handling: since we are not handling errors, we specify null
-//     },
-//     filename: function(req,file,cb){
-//         cb(null, file.fieldname + "-" + uuidv4() + path.extname(file.originalname))
-//         //sets as <filename>-<uniqueid>.<its_extension>
-//     }
-// })
-// //multer configuration
-// const upload=multer({storage:storage})      //now this upload object is capable of handling a file
 
+//AWS Ec2 configuration
+const ec2 = new EC2Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
 // AWS S3 Configuration
 const s3 = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
+  region: process.env.AWS_REGION,
+  credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
 });
 // AWS SQS Configuration
 const sqs = new SQSClient({
-    region: process.env.AWS_REGION,
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
+  region: process.env.AWS_REGION,
+  credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
 });
 
 const pollQueue = async () => {
@@ -55,7 +51,8 @@ const pollQueue = async () => {
 
     if (response.Messages) {
       for (const message of response.Messages) {
-        const body = JSON.parse(message.Body);const record = body.Records?.[0];
+        const body = JSON.parse(message.Body);
+        const record = body.Records?.[0];
 
         if (record && record.s3) {
           const bucket = record.s3.bucket.name;
@@ -65,6 +62,7 @@ const pollQueue = async () => {
             console.warn("⚠️ Received unexpected message format:", message.Body);
         }
 
+        //here run dockercontainer process files and once over...then....
 
         // Delete message to prevent reprocessing
         await sqs.send(new DeleteMessageCommand({
@@ -79,13 +77,7 @@ const pollQueue = async () => {
     // Schedule next poll
     setTimeout(pollQueue, 5000);
   }
-
 };
-
-
-
-// Multer Storage Configuration (Now Memory Instead of Disk)
-const upload = multer({ storage: multer.memoryStorage() });
 
 
 
@@ -128,7 +120,6 @@ app.post("/upload",upload.single('file'),async(req,res)=>{
     // const outputPath=`./uploads/courses/${lessonId}`        //directory of video to be streamed
     // const hlsPath=`${outputPath}/index.m3u8`            //m3u8 is plain text file that can be used to store URL paths of streaming audio or video info
     //of media track like timestamps
-
     
     // // if directory dont exists....create it
     // if(!fs.existsSync(outputPath)){
@@ -148,9 +139,7 @@ app.post("/upload",upload.single('file'),async(req,res)=>{
     //     }
     //     console.log(`stdout: ${stdout}`)
     //     console.log(`stderr: ${stderr}`)
-
     //     const videoURL=`http://localhost:8000/uploads/courses/${lessonId}/index.m3u8`;
-
     //     res.json({
     //         message: "Video converted to hls format",
     //         videoURL: videoURL,
@@ -158,7 +147,8 @@ app.post("/upload",upload.single('file'),async(req,res)=>{
     //     })
     //     // if video is long u will see multiple segments as segment000.ts,segment001.ts etc
     // })
-    const lessonId = uuidv4();
+    
+    const lessonId = Date.now();
     const fileKey = `courses/${lessonId}/${req.file.originalname}`;
     const params = {
         Bucket: process.env.S3_BUCKET,
@@ -175,6 +165,7 @@ app.post("/upload",upload.single('file'),async(req,res)=>{
             message: "Video uploaded to S3",
             videoURL: data.Location,
             lessonId: lessonId,
+            bashInputParameter: `${lessonId}/${req.file.originalname}`
         });
     } catch (error) {
         console.error("Error uploading file:", error);
