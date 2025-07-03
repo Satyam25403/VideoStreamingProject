@@ -9,6 +9,10 @@ import { EC2Client, RunInstancesCommand, DescribeInstancesCommand, waitUntilInst
 import { SSMClient, SendCommandCommand, GetCommandInvocationCommand, DescribeInstanceInformationCommand } from "@aws-sdk/client-ssm";
 
 
+// declare global variables
+let globalLessonId = null;
+let globalFileName = null;
+
 
 dotenv.config()
 
@@ -390,6 +394,11 @@ app.post("/upload",upload.single('file'),async(req,res)=>{
 
     try {
         const data = await s3.send(command);
+
+        // set the global constants to pass them to trancoding function
+        globalLessonId = lessonId;
+        globalFileName = req.file.originalname;
+
         res.json({
             message: "Video uploaded to S3",
             videoURL: data.Location,
@@ -408,7 +417,19 @@ app.listen(8000,function(){
     // pollQueue();
 
     pollTranscodeCompletion();
-    launchTranscodingInstance(1750315633821,"DemoVideo.mp4").catch(console.error);
+
+    // Poll for values lessonId and filename to be set and then launch
+    const waitAndLaunch = () => {
+        if (globalLessonId && globalFileName) {
+            launchTranscodingInstance(globalLessonId, globalFileName).catch(console.error);
+        } else {
+            console.log("Waiting for upload...");
+            setTimeout(waitAndLaunch, 1000);
+        }
+    };
+    
+    waitAndLaunch();
+
     setInterval(() => {
       console.log("💓 Server alive at", new Date().toISOString());
     }, 60000);
